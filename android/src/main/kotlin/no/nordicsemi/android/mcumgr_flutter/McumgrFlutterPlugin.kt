@@ -270,6 +270,15 @@ class McumgrFlutterPlugin : FlutterPlugin, MethodCallHandler {
 
 		val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
 
+		// Release the transport of a previous init before opening a new one.
+		// Without this every init leaks its transport: the old one stays
+		// connected, keeps its GATT client open and keeps observing the SMP
+		// characteristic, so a device ends up with one live transport per init
+		// and every received notification is logged once per transport.
+		if (::settingsManager.isInitialized) {
+			settingsManager.transport.release()
+		}
+
 		val device = bluetoothManager.adapter.getRemoteDevice(address)
 		val transport = LoggableMcuMgrBleTransport(context, device, logStreamHandler)
 		settingsManager = SettingsManager(transport, padTo4Bytes, encodeValueToCBOR, useByteStringEncoding, precisionMode)
@@ -277,7 +286,6 @@ class McumgrFlutterPlugin : FlutterPlugin, MethodCallHandler {
 		transport.connect(device)
 			.done {
 				transport.setLoggingEnabled(true)
-				settingsManager = SettingsManager(transport, padTo4Bytes, encodeValueToCBOR, useByteStringEncoding, precisionMode)
 				result.success(null)
 			}
 			.fail { _, errorCode ->
