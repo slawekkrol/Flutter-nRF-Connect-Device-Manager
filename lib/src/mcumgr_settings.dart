@@ -27,6 +27,12 @@ final class McumgrSettings {
     bool logEnabled = false,
     PrecisionMode precisionMode = PrecisionMode.auto,
   }) async {
+    // Drop the previous log subscription before attaching a new one. Calling
+    // init() again (a reconnect, or another feature reusing the same instance)
+    // otherwise stacks listeners on the log stream, so every message is printed
+    // once per init() and the old subscriptions are never released.
+    await _streamSubscription?.cancel();
+    _streamSubscription = null;
     if (logEnabled) {
       final logger = McuMgrLogger.deviceIdentifier(deviceAddress);
       _streamSubscription = logger.logMessageStream.listen((logMessage) {
@@ -88,8 +94,9 @@ final class McumgrSettings {
     return resultBytes;
   }
 
-  Future<void> dispose() {
-    _streamSubscription?.cancel();
+  Future<void> dispose() async {
+    await _streamSubscription?.cancel();
+    _streamSubscription = null;
     return _methodChannel.invokeMethod('disposeSettings');
   }
 }
