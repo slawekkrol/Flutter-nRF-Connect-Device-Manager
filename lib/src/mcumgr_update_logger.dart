@@ -52,7 +52,9 @@ class McuMgrLogger extends FirmwareUpdateLogger {
     UpdateLoggerChannel.logEventChannel
         .receiveBroadcastStream()
         .map((event) => ProtoLogMessageStreamArg.fromBuffer(event))
-        .where((event) => event.uuid == _deviceId)
+        // iOS tags messages with the peripheral UUID in upper case, while
+        // callers often hold it in lower case, so the case must not matter.
+        .where((event) => event.uuid.toLowerCase() == _deviceId.toLowerCase())
         .listen((data) {
       if (data.hasError() && !_logMessageStreamController.isClosed) {
         _logMessageStreamController.addError(data.error.localizedDescription);

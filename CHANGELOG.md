@@ -8,6 +8,9 @@
   initialised last. Re-initialising a device replaces only that device's
   manager, and `dispose` releases only the named device. Implemented for
   iOS/macOS and Android.
+- Log messages reach the logger of their device regardless of the case of its
+  identifier. iOS tags them with the peripheral UUID in upper case, so a logger
+  created with a lower-case UUID used to receive nothing.
 
 ## 0.10.0
 - `McumgrSettings.writeSetting` accepts an optional `password` parameter. When
