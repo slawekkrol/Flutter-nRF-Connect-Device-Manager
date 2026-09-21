@@ -183,7 +183,11 @@ final mcumgrSettings = McumgrSettings();
 
 ### Initializing the Settings Manager
 
-Before using the settings manager, you must initialize it with the device address:
+Before using the settings manager, you must initialize it with the device address.
+The native side keeps one settings manager per device, so several devices can be
+initialized at the same time. Every read, write and dispose names the device it
+targets, and a call for a device that was never initialized fails instead of
+reaching another device:
 
 ```dart
 await mcumgrSettings.init(
@@ -199,11 +203,11 @@ You can read all settings or a specific setting:
 
 ```dart
 // Read all settings
-final allSettings = await mcumgrSettings.readSettings();
+final allSettings = await mcumgrSettings.readSettings(deviceAddress: deviceAddress);
 print('All settings: $allSettings');
 
 // Read a specific setting
-final rawBytes = await mcumgrSettings.readSetting('config/timeout/value');
+final rawBytes = await mcumgrSettings.readSetting('config/timeout/value', deviceAddress: deviceAddress);
 // The result is returned as Uint8List, which you need to decode based on the expected type
 ```
 
@@ -213,18 +217,18 @@ To write a setting:
 
 ```dart
 // Write a string value
-final result = await mcumgrSettings.writeSetting('device/name', 'MyDevice');
+final result = await mcumgrSettings.writeSetting('device/name', 'MyDevice', deviceAddress: deviceAddress);
 
 // Write other types of values
-await mcumgrSettings.writeSetting('config/interval', 1000);
-await mcumgrSettings.writeSetting('feature/enabled', true);
+await mcumgrSettings.writeSetting('config/interval', 1000, deviceAddress: deviceAddress);
+await mcumgrSettings.writeSetting('feature/enabled', true, deviceAddress: deviceAddress);
 ```
 
 #### Authenticated Writes (`pwd`)
 
 Some firmware builds protect a subset of settings behind a configurable
 password. To authenticate a write, pass the password via the optional
-`password` named parameter — it is added to the SMP payload as the `pwd`
+`password` named parameter; it is added to the SMP payload as the `pwd`
 CBOR field:
 
 ```dart
@@ -232,15 +236,14 @@ CBOR field:
 await mcumgrSettings.writeSetting(
   'protected/setting/key',
   42,
+  deviceAddress: deviceAddress,
   password: 'your-device-password',
 );
 ```
 
-If `password` is omitted (or `null`), the payload is identical to the
-prior behaviour — no `pwd` field is sent. This makes the parameter fully
-backwards compatible: existing code keeps working unchanged, and firmware
-that doesn't implement password protection simply ignores the extra
-field.
+If `password` is omitted (or `null`), no `pwd` field is sent, and
+firmware that doesn't implement password protection simply ignores the
+extra field when it is.
 
 Password injection requires the manager to be initialised with
 `useByteStringEncoding: false` (the direct CBOR map payload path). With
@@ -274,10 +277,11 @@ bool decodeBoolSetting(Uint8List bytes) {
 
 ### Disposing the Settings Manager
 
-When you're done using the settings manager:
+When you're done with a device, release its settings manager. Managers of
+other devices stay open:
 
 ```dart
-await mcumgrSettings.dispose();
+await mcumgrSettings.dispose(deviceAddress: deviceAddress);
 ```
 
 ### Complete Example
@@ -285,25 +289,27 @@ await mcumgrSettings.dispose();
 ```dart
 final mcumgrSettings = McumgrSettings();
 
+final deviceAddress = device.remoteId.str;
+
 try {
   // Initialize
   await mcumgrSettings.init(
-    deviceAddress: device.remoteId.str,
+    deviceAddress: deviceAddress,
     encodeValueToCBOR: true,
     padTo4Bytes: true,
   );
 
   // Read a setting
-  final deviceName = await mcumgrSettings.readSetting('device/name');
+  final deviceName = await mcumgrSettings.readSetting('device/name', deviceAddress: deviceAddress);
   final nameString = String.fromCharCodes(List.from(deviceName)..removeAt(0));
   print('Device name: $nameString');
 
   // Write a setting
-  await mcumgrSettings.writeSetting('device/name', 'NewDeviceName');
+  await mcumgrSettings.writeSetting('device/name', 'NewDeviceName', deviceAddress: deviceAddress);
 
 } catch (e) {
   print('Error: $e');
 } finally {
-  await mcumgrSettings.dispose();
+  await mcumgrSettings.dispose(deviceAddress: deviceAddress);
 }
 ```

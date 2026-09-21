@@ -1,3 +1,14 @@
+## 0.11.0
+- **Breaking:** the Settings Manager keeps one native manager per device
+  instead of a single shared one. `readSettings`, `readSetting`,
+  `writeSetting` and `dispose` take a required `deviceAddress`, so several
+  devices can be connected at once and each call reaches the device it names.
+  A call for a device that was never initialised fails with "Settings manager
+  is not initialized for <address>" instead of being served by the device
+  initialised last. Re-initialising a device replaces only that device's
+  manager, and `dispose` releases only the named device. Implemented for
+  iOS/macOS and Android.
+
 ## 0.10.0
 - `McumgrSettings.writeSetting` accepts an optional `password` parameter. When
   supplied, the value is added to the SMP write payload as the `pwd` CBOR

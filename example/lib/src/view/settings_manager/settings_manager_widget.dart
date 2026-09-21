@@ -185,9 +185,23 @@ class _SettingsManagerWidgetState extends State<SettingsManagerWidget> {
     }
   }
 
+  /// Address of the connected device, or null after telling the user to
+  /// connect one first. Every settings call names the device it targets.
+  String? _requireConnectedAddress() {
+    final address = _connectedDevice?.remoteId.str;
+    if (address == null) {
+      _showSnackBar('Connect to a device first');
+    }
+    return address;
+  }
+
   Future<void> _readAllSettings() async {
+    final address = _requireConnectedAddress();
+    if (address == null) {
+      return;
+    }
     try {
-      final result = await _mcumgrSettings.readSettings();
+      final result = await _mcumgrSettings.readSettings(deviceAddress: address);
       print("Read all result: $result");
     } catch (e) {
       print("Error reading settings: $e");
@@ -201,8 +215,13 @@ class _SettingsManagerWidgetState extends State<SettingsManagerWidget> {
       return;
     }
 
+    final address = _requireConnectedAddress();
+    if (address == null) {
+      return;
+    }
+
     try {
-      final rawResponse = await _mcumgrSettings.readSetting(key);
+      final rawResponse = await _mcumgrSettings.readSetting(key, deviceAddress: address);
 
       if (rawResponse case Uint8List()) {
         String s = String.fromCharCodes(List.from(rawResponse)..removeAt(0));
@@ -264,8 +283,13 @@ class _SettingsManagerWidgetState extends State<SettingsManagerWidget> {
       }
     }
 
+    final address = _requireConnectedAddress();
+    if (address == null) {
+      return;
+    }
+
     try {
-      final result = await _mcumgrSettings.writeSetting(key, parsedValue);
+      final result = await _mcumgrSettings.writeSetting(key, parsedValue, deviceAddress: address);
       if (result.isNotEmpty) {
         _showSnackBar('Successfully wrote setting: $key = $parsedValue (${parsedValue.runtimeType})');
       } else {

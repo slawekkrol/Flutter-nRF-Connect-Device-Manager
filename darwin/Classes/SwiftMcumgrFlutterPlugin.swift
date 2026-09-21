@@ -14,7 +14,9 @@ public class SwiftMcumgrFlutterPlugin: NSObject, FlutterPlugin {
     static let namespace = "mcumgr_flutter"
 
     private var updateManagers: [String: UpdateManager] = [:]
-    private var settingsManager: SettingsManager?
+    /// Settings managers keyed by peripheral UUID, one per connected device, so
+    /// a read or write always reaches the device it names.
+    private var settingsManagers: [String: SettingsManager] = [:]
 
     // Lazy initialization to avoid triggering Bluetooth permission at app startup
     private var _centralManager: CBCentralManager?
@@ -137,13 +139,13 @@ public class SwiftMcumgrFlutterPlugin: NSObject, FlutterPlugin {
             case .initSettings:
                 try initSettingsManager(call: call, result: result)
             case .fetchSettings:
-                try fetchSettings(result: result)
+                try fetchSettings(call: call, result: result)
             case .readSetting:
                 try readSetting(call: call, result: result)
             case .writeSetting:
                 try writeSetting(call: call, result: result)
             case .disposeSettings:
-                settingsManager = nil
+                try disposeSettings(call: call)
                 result(nil)
             }
         } catch let e as FlutterError {
@@ -484,7 +486,7 @@ extension SwiftMcumgrFlutterPlugin: CBCentralManagerDelegate {
     }
 
     private func handleSettingsManager(for peripheral: CBPeripheral, call: FlutterMethodCall) throws -> McuMgrBleTransport {
-        guard case .none = settingsManager else {
+        guard case .none = settingsManagers[peripheral.identifier.uuidString] else {
             throw FlutterError(code: ErrorCode.updateManagerExists.rawValue, message: "Settings manager for provided peripheral already exists", details: call.debugDetails)
         }
 
@@ -500,7 +502,7 @@ extension SwiftMcumgrFlutterPlugin: CBCentralManagerDelegate {
         let precisionMode = args["precisionMode"] as? String ?? "auto"
 
         let transport = McuMgrBleTransport(peripheral)
-        settingsManager = SettingsManager(transport: transport,
+        settingsManagers[peripheral.identifier.uuidString] = SettingsManager(transport: transport,
                                           padTo4Bytes: padTo4Bytes,
                                           encodeValueToCBOR: encodeValueToCBOR,
                                           useByteStringEncoding: useByteStringEncoding,
@@ -510,26 +512,46 @@ extension SwiftMcumgrFlutterPlugin: CBCentralManagerDelegate {
         return transport
     }
 
-    private func fetchSettings(result: @escaping FlutterResult) throws {
-        guard let settingsManager = settingsManager else {
+    /// Peripheral UUID named in a settings call, in the spelling the manager
+    /// map uses.
+    private func settingsKey(for call: FlutterMethodCall) throws -> String {
+        guard let args = call.arguments as? [String: Any],
+              let addressString = args["deviceAddress"] as? String,
+              let uuid = UUID(uuidString: addressString) else {
             throw FlutterError(code: Self.settingsManagerErrorCode,
-                               message: "Settings manager is not initialized",
+                               message: "Device address expected in map",
                                details: nil)
         }
+        return uuid.uuidString
+    }
 
-        settingsManager.fetchSettings(result: result)
+    /// Manager of the device named in the call. A device that was never
+    /// initialised fails here instead of being served by another device's manager.
+    private func settingsManager(for call: FlutterMethodCall) throws -> SettingsManager {
+        let key = try settingsKey(for: call)
+        guard let settingsManager = settingsManagers[key] else {
+            throw FlutterError(code: Self.settingsManagerErrorCode,
+                               message: "Settings manager is not initialized for \(key)",
+                               details: nil)
+        }
+        return settingsManager
+    }
+
+    private func disposeSettings(call: FlutterMethodCall) throws {
+        settingsManagers.removeValue(forKey: try settingsKey(for: call))
+    }
+
+    private func fetchSettings(call: FlutterMethodCall, result: @escaping FlutterResult) throws {
+        try settingsManager(for: call).fetchSettings(result: result)
     }
 
     private func readSetting(call: FlutterMethodCall, result: @escaping FlutterResult) throws {
-        guard let settingsManager = settingsManager else {
-            throw FlutterError(code: Self.settingsManagerErrorCode,
-                               message: "Settings manager is not initialized",
-                               details: nil)
-        }
+        let settingsManager = try settingsManager(for: call)
 
-        guard let key = call.arguments as? String else {
+        guard let args = call.arguments as? [String: Any],
+              let key = args["key"] as? String else {
             throw FlutterError(code: Self.settingsManagerErrorCode,
-                               message: "Expected key",
+                               message: "Expected key in map",
                                details: nil)
         }
 
@@ -537,11 +559,7 @@ extension SwiftMcumgrFlutterPlugin: CBCentralManagerDelegate {
     }
 
     private func writeSetting(call: FlutterMethodCall, result: @escaping FlutterResult) throws {
-        guard let settingsManager = settingsManager else {
-            throw FlutterError(code: Self.settingsManagerErrorCode,
-                               message: "Settings manager is not initialized",
-                               details: nil)
-        }
+        let settingsManager = try settingsManager(for: call)
 
         guard let args = call.arguments as? [String: Any],
               let key = args["key"] as? String,

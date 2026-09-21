@@ -33,6 +33,7 @@ import no.nordicsemi.android.mcumgr_flutter.utils.UpdateManagerDoesNotExist
 import no.nordicsemi.android.mcumgr_flutter.utils.UpdateManagerExists
 import no.nordicsemi.android.mcumgr_flutter.utils.WrongArguments
 import no.nordicsemi.android.mcumgr_flutter.utils.guard
+import java.util.Locale
 
 private const val settingsManagerErrorCode = "MCU_MGR_SETTINGS_MANAGER"
 
@@ -62,7 +63,9 @@ class McumgrFlutterPlugin : FlutterPlugin, MethodCallHandler {
 	private lateinit var fsManagerPlugin: FsManagerPlugin
 	private lateinit var customGroupManagerPlugin: CustomGroupManagerPlugin
 
-	private lateinit var settingsManager: SettingsManager
+	/// Settings managers keyed by device address, one per connected device, so
+	/// a read or write always reaches the device it names.
+	private val settingsManagers: MutableMap<String, SettingsManager> = mutableMapOf()
 
 	override fun onAttachedToEngine(flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
 		context = flutterPluginBinding.applicationContext
@@ -175,52 +178,35 @@ class McumgrFlutterPlugin : FlutterPlugin, MethodCallHandler {
 				}
         
 				FlutterMethod.fetchSettings -> {
-					if (::settingsManager.isInitialized) {
-						settingsManager.fetchSettings(result)
-					} else {
-						return result.error(settingsManagerErrorCode, "Settings manager is not initialized", null)
-					}
+					val args = settingsArguments(call, result) ?: return
+					val manager = settingsManagerFor(args, result) ?: return
+					manager.fetchSettings(result)
 				}
-        
-				FlutterMethod.readSetting -> {
-					if (::settingsManager.isInitialized) {
-						val key = call.arguments as? String
-							?: return result.error(settingsManagerErrorCode, "BAD_ARGS", "Expected key")
-						settingsManager.readSettings(key, result)
 
-					} else {
-						return result.error(
-                            settingsManagerErrorCode,
-							"Settings manager is not initialized",
-							null
-						)
-					}
+				FlutterMethod.readSetting -> {
+					val args = settingsArguments(call, result) ?: return
+					val manager = settingsManagerFor(args, result) ?: return
+					val key = args["key"] as? String
+						?: return result.error(settingsManagerErrorCode, "BAD_ARGS", "Expected key in map")
+					manager.readSettings(key, result)
 				}
 
 				FlutterMethod.writeSetting -> {
-					if (::settingsManager.isInitialized) {
-						val args = call.arguments as? Map<*, *>
-							?: return result.error(settingsManagerErrorCode, "BAD_ARGS", "Expected key-value map")
-						val key = args["key"] as? String
-							?: return result.error(settingsManagerErrorCode, "BAD_ARGS", "Expected key in map")
-						val value = args["value"]
-							?: return result.error(settingsManagerErrorCode, "BAD_ARGS", "Expected value in map")
-						val password = args["password"] as? String
-						settingsManager.writeSetting(key, value, password, result)
-
-					} else {
-						return result.error(
-                            settingsManagerErrorCode,
-							"Settings manager is not initialized",
-							null
-						)
-					}
+					val args = settingsArguments(call, result) ?: return
+					val manager = settingsManagerFor(args, result) ?: return
+					val key = args["key"] as? String
+						?: return result.error(settingsManagerErrorCode, "BAD_ARGS", "Expected key in map")
+					val value = args["value"]
+						?: return result.error(settingsManagerErrorCode, "BAD_ARGS", "Expected value in map")
+					val password = args["password"] as? String
+					manager.writeSetting(key, value, password, result)
 				}
 
 				FlutterMethod.disposeSettings -> {
-					if (::settingsManager.isInitialized) {
-						settingsManager.transport.release()
-					}
+					val args = settingsArguments(call, result) ?: return
+					val address = args["deviceAddress"] as? String
+						?: return result.error(settingsManagerErrorCode, "BAD_ARGS", "Expected deviceAddress in map")
+					settingsManagers.remove(settingsKey(address))?.transport?.release()
 					result.success(null)
 				}
 			}
@@ -270,18 +256,16 @@ class McumgrFlutterPlugin : FlutterPlugin, MethodCallHandler {
 
 		val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
 
-		// Release the transport of a previous init before opening a new one.
-		// Without this every init leaks its transport: the old one stays
+		// Release this device's transport from a previous init before opening a
+		// new one. Without this every init leaks its transport: the old one stays
 		// connected, keeps its GATT client open and keeps observing the SMP
-		// characteristic, so a device ends up with one live transport per init
-		// and every received notification is logged once per transport.
-		if (::settingsManager.isInitialized) {
-			settingsManager.transport.release()
-		}
+		// characteristic. Other devices keep their managers untouched.
+		settingsManagers.remove(settingsKey(address))?.transport?.release()
 
 		val device = bluetoothManager.adapter.getRemoteDevice(address)
 		val transport = LoggableMcuMgrBleTransport(context, device, logStreamHandler)
-		settingsManager = SettingsManager(transport, padTo4Bytes, encodeValueToCBOR, useByteStringEncoding, precisionMode)
+		settingsManagers[settingsKey(address)] =
+			SettingsManager(transport, padTo4Bytes, encodeValueToCBOR, useByteStringEncoding, precisionMode)
 
 		transport.connect(device)
 			.done {
@@ -295,6 +279,34 @@ class McumgrFlutterPlugin : FlutterPlugin, MethodCallHandler {
 
 
 	}
+
+	/// Arguments of a settings call, or null after reporting BAD_ARGS.
+	private fun settingsArguments(call: MethodCall, result: Result): Map<*, *>? {
+		val args = call.arguments as? Map<*, *>
+		if (args == null) {
+			result.error(settingsManagerErrorCode, "BAD_ARGS", "Expected map with deviceAddress")
+		}
+		return args
+	}
+
+	/// Manager of the device named in [args], or null after reporting why there
+	/// is none. A device that was never initialised fails here instead of being
+	/// served by another device's manager.
+	private fun settingsManagerFor(args: Map<*, *>, result: Result): SettingsManager? {
+		val address = args["deviceAddress"] as? String
+		if (address == null) {
+			result.error(settingsManagerErrorCode, "BAD_ARGS", "Expected deviceAddress in map")
+			return null
+		}
+		val manager = settingsManagers[settingsKey(address)]
+		if (manager == null) {
+			result.error(settingsManagerErrorCode, "Settings manager is not initialized for $address", null)
+		}
+		return manager
+	}
+
+	/// MAC addresses may arrive in either case; the map needs one spelling.
+	private fun settingsKey(address: String): String = address.uppercase(Locale.ROOT)
 
 	@Throws(FlutterError::class)
 	private fun update(call: MethodCall) {
