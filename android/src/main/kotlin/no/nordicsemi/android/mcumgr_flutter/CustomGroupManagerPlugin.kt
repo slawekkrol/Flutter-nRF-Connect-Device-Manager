@@ -4,10 +4,12 @@ import android.bluetooth.BluetoothAdapter
 import android.content.Context
 import android.os.Handler
 import io.flutter.plugin.common.BinaryMessenger
-import io.runtime.mcumgr.McuMgrCallback
-import io.runtime.mcumgr.McuMgrTransport
-import io.runtime.mcumgr.exception.McuMgrException
-import io.runtime.mcumgr.response.McuMgrResponse
+import kotlin.coroutines.resumeWithException
+import kotlinx.coroutines.suspendCancellableCoroutine
+import no.nordicsemi.android.mcumgr.McuMgrCallback
+import no.nordicsemi.android.mcumgr.McuMgrTransport
+import no.nordicsemi.android.mcumgr.exception.McuMgrException
+import no.nordicsemi.android.mcumgr.response.McuMgrResponse
 import no.nordicsemi.android.mcumgr_flutter.logging.LoggableMcuMgrBleTransport
 import no.nordicsemi.android.mcumgr_flutter.utils.ConnectionStateStreamHandler
 import no.nordicsemi.android.mcumgr_flutter.utils.StreamHandler
@@ -43,14 +45,13 @@ class CustomGroupManagerPlugin(
         )
     }
 
-    override fun sendCustomCommand(
+    override suspend fun sendCustomCommand(
         remoteId: String,
         groupId: Long,
         commandId: Long,
         op: Long,
         payload: Map<String?, Any?>,
-        callback: (Result<ByteArray>) -> Unit,
-    ) {
+    ): ByteArray = suspendCancellableCoroutine { cont ->
         val decorator = getOrCreateDecorator(remoteId)
         val manager = CustomGroupManager(groupId.toInt(), decorator)
         manager.sendCommand(
@@ -65,11 +66,11 @@ class CustomGroupManagerPlugin(
                         bytes.drop(8).toByteArray()
                     else
                         bytes ?: ByteArray(0)
-                    callback(Result.success(payload))
+                    cont.resume(payload, onCancellation = null)
                 }
 
                 override fun onError(error: McuMgrException) {
-                    callback(Result.failure(error))
+                    cont.resumeWithException(error)
                 }
             }
         )

@@ -1,11 +1,12 @@
 package no.nordicsemi.android.mcumgr_flutter.ext
 
-import io.runtime.mcumgr.response.img.McuMgrImageStateResponse
+import no.nordicsemi.android.mcumgr.response.img.McuMgrImageStateResponse
 import no.nordicsemi.android.mcumgr_flutter.gen.ProtoImageSlot
 import okio.ByteString.Companion.toByteString
 
 fun McuMgrImageStateResponse.ImageSlot.toProto(): ProtoImageSlot {
     return ProtoImageSlot(
+        image = this.image.toLong(),
         slot = this.slot.toLong(),
         version = version,
         hash = hash.toByteString(),

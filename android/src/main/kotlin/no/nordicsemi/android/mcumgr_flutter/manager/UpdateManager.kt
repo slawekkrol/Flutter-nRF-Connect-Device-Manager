@@ -1,16 +1,15 @@
 package no.nordicsemi.android.mcumgr_flutter.manager
 
 import android.util.Log
-import android.util.Pair
-import io.runtime.mcumgr.ble.McuMgrBleTransport
-import io.runtime.mcumgr.dfu.FirmwareUpgradeCallback
-import io.runtime.mcumgr.dfu.FirmwareUpgradeController
-import io.runtime.mcumgr.dfu.mcuboot.FirmwareUpgradeManager
-import io.runtime.mcumgr.dfu.mcuboot.FirmwareUpgradeManager.State
-import io.runtime.mcumgr.dfu.mcuboot.model.ImageSet
-import io.runtime.mcumgr.dfu.mcuboot.model.TargetImage
-import io.runtime.mcumgr.exception.McuMgrException
-import io.runtime.mcumgr.managers.ImageManager
+import no.nordicsemi.android.mcumgr.ble.McuMgrBleTransport
+import no.nordicsemi.android.mcumgr.dfu.FirmwareUpgradeCallback
+import no.nordicsemi.android.mcumgr.dfu.FirmwareUpgradeController
+import no.nordicsemi.android.mcumgr.dfu.mcuboot.FirmwareUpgradeManager
+import no.nordicsemi.android.mcumgr.dfu.mcuboot.FirmwareUpgradeManager.State
+import no.nordicsemi.android.mcumgr.dfu.mcuboot.model.ImageSet
+import no.nordicsemi.android.mcumgr.dfu.mcuboot.model.TargetImage
+import no.nordicsemi.android.mcumgr.exception.McuMgrException
+import no.nordicsemi.android.mcumgr.managers.ImageManager
 import no.nordicsemi.android.mcumgr_flutter.ext.shouldLog
 import no.nordicsemi.android.mcumgr_flutter.ext.toProto
 import no.nordicsemi.android.mcumgr_flutter.gen.*
@@ -62,7 +61,7 @@ class UpdateManager(
 
 	private val TAG: String? = "MyActivity"
 
-	fun start(images: List<Pair<Int, ByteArray>>, config: FirmwareUpgradeConfiguration?) {
+	fun start(images: List<Triple<Int, Int?, ByteArray>>, config: FirmwareUpgradeConfiguration?) {
 		val settings = FirmwareUpgradeManager.Settings.Builder()
 		if (config != null) {
 			manager.setMode(config.firmwareUpgradeMode)
@@ -71,11 +70,15 @@ class UpdateManager(
 			settings.setWindowCapacity(config.pipelineDepth)
 		}
 		settings.setEraseAppSettings(config?.eraseAppSettings ?: true)
-		val imageSet = ImageSet(images.map { TargetImage(it.first, it.second) })
+		val imageSet = ImageSet(images.map { (imageIndex, slot, data) ->
+			// TargetImage(imageIndex, data) hardcodes SLOT_SECONDARY. Where the
+			// caller named a slot, use the Direct XIP constructor instead.
+			if (slot != null) TargetImage(imageIndex, slot, data) else TargetImage(imageIndex, data)
+		})
 		// print images to log
 		images.forEach {
 			val imageNumber = it.first
-			val image = it.second
+			val image = it.third
 			// Get sha1 hash of image
 			val sha1 = image.sha1
 

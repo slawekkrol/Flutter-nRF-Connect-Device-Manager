@@ -4,12 +4,14 @@ import android.bluetooth.BluetoothAdapter
 import android.content.Context
 import android.os.Handler
 import io.flutter.plugin.common.BinaryMessenger
-import io.runtime.mcumgr.McuMgrCallback
-import io.runtime.mcumgr.exception.McuMgrException
-import io.runtime.mcumgr.managers.FsManager
-import io.runtime.mcumgr.response.fs.McuMgrFsStatusResponse
-import io.runtime.mcumgr.transfer.DownloadCallback
-import io.runtime.mcumgr.transfer.TransferController
+import kotlin.coroutines.resumeWithException
+import kotlinx.coroutines.suspendCancellableCoroutine
+import no.nordicsemi.android.mcumgr.McuMgrCallback
+import no.nordicsemi.android.mcumgr.exception.McuMgrException
+import no.nordicsemi.android.mcumgr.managers.FsManager
+import no.nordicsemi.android.mcumgr.response.fs.McuMgrFsStatusResponse
+import no.nordicsemi.android.mcumgr.transfer.DownloadCallback
+import no.nordicsemi.android.mcumgr.transfer.TransferController
 import no.nordicsemi.android.mcumgr_flutter.logging.LoggableMcuMgrBleTransport
 import no.nordicsemi.android.mcumgr_flutter.utils.StreamHandler
 import no.nordicsemi.android.mcumgr_flutter.utils.FsDownloadStreamHandler
@@ -105,21 +107,22 @@ class FsManagerPlugin(
         fsManagers[remoteId]?.cancelTransfer()
     }
 
-    override fun status(remoteId: String, path: String, callback: (Result<Long>) -> Unit) {
-        val mgr = getFsManager(remoteId)
-        mgr.status(
-            path,
-            object : McuMgrCallback<McuMgrFsStatusResponse> {
-                override fun onResponse(p0: McuMgrFsStatusResponse) {
-                    callback(Result.success(p0.len.toLong()))
-                }
+    override suspend fun status(remoteId: String, path: String): Long =
+        suspendCancellableCoroutine { cont ->
+            val mgr = getFsManager(remoteId)
+            mgr.status(
+                path,
+                object : McuMgrCallback<McuMgrFsStatusResponse> {
+                    override fun onResponse(p0: McuMgrFsStatusResponse) {
+                        cont.resume(p0.len.toLong(), onCancellation = null)
+                    }
 
-                override fun onError(p0: McuMgrException) {
-                    callback(Result.failure(p0))
+                    override fun onError(p0: McuMgrException) {
+                        cont.resumeWithException(p0)
+                    }
                 }
-            }
-        )
-    }
+            )
+        }
 
     override fun kill(remoteId: String) {
         fsManagers.remove(remoteId)?.transporter?.release()

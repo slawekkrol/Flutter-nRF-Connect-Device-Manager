@@ -4,18 +4,17 @@ import android.bluetooth.BluetoothManager
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
-import android.util.Pair
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
-import io.runtime.mcumgr.McuMgrCallback
-import io.runtime.mcumgr.dfu.mcuboot.FirmwareUpgradeManager
-import io.runtime.mcumgr.exception.McuMgrException
-import io.runtime.mcumgr.response.img.McuMgrImageResponse
-import io.runtime.mcumgr.response.img.McuMgrImageStateResponse
+import no.nordicsemi.android.mcumgr.McuMgrCallback
+import no.nordicsemi.android.mcumgr.dfu.mcuboot.FirmwareUpgradeManager
+import no.nordicsemi.android.mcumgr.exception.McuMgrException
+import no.nordicsemi.android.mcumgr.response.img.McuMgrImageResponse
+import no.nordicsemi.android.mcumgr.response.img.McuMgrImageStateResponse
 import no.nordicsemi.android.mcumgr_flutter.ext.toProto
 import no.nordicsemi.android.mcumgr_flutter.gen.ProtoFirmwareUpgradeConfiguration
 import no.nordicsemi.android.mcumgr_flutter.gen.ProtoListImagesResponse
@@ -340,7 +339,7 @@ class McumgrFlutterPlugin : FlutterPlugin, MethodCallHandler {
 			)
 		}
 
-		val images = arg.images.map { Pair.create(it.image, it.data_.toByteArray()) }
+		val images = arg.images.map { Triple(it.image, it.slot, it.data_.toByteArray()) }
 		updateManager.start(images, config)
 	}
 
