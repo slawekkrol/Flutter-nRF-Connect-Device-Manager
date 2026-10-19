@@ -2,7 +2,8 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     id 'com.android.library'
-    id 'com.squareup.wire'
+    // Versioned here, as a consuming app's settings do not declare this plugin.
+    id 'com.squareup.wire' version '7.1.0'
 }
 
 group 'no.nordicsemi.android.mcumgr_flutter'
