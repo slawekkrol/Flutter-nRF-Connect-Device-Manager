@@ -43,7 +43,7 @@ class LoggableMcuMgrBleTransport(
 			}
 
 		val log = ProtoLogMessage(
-			message = message,
+			message = redactSecrets(message),
 			logCategory = ProtoLogMessage.LogCategory.DFU,
 			logLevel = priority.toLogLevel(),
 			logDateTime = System.currentTimeMillis(),
